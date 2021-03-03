@@ -1,0 +1,433 @@
+\documentclass{beamer}
+
+\usepackage{amsmath}
+\usepackage[style=alphabetic,url=true]{biblatex}
+\usepackage{environ}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{calrsfs}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[cache=false]{minted}
+
+\graphicspath{ {./graphics/} }
+\usetikzlibrary{shapes.arrows,chains}
+\usecolortheme{beaver}
+\setbeamertemplate{itemize item}[circle]
+\setbeamertemplate{itemize subitem}{--}
+\addtobeamertemplate{navigation symbols}{}{
+  \usebeamerfont{footline}
+  \usebeamercolor[fg]{footline}
+  \hspace{1em}
+  \insertframenumber/\inserttotalframenumber
+}
+\setminted[Lisp]{
+  fontsize=\scriptsize
+}
+\BeforeBeginEnvironment{minted}{\medskip}
+\AfterEndEnvironment{minted}{\medskip}
+
+
+
+\title{
+  Common Lisp and Introduction to Functional Programming \\
+  Lecture 5: Macros, CLOS and MOP
+}
+\author{Yuri Zhykin}
+\date{Feb 17, 2021}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}[fragile]
+  \frametitle{Macrosystem}
+  \begin{itemize}
+  \item Macrosystems in programming languages allow to generate code and perform
+    simple computations during compilation.
+  \item Simple macrosystems (for example \textit{C}'s macrosystem) operate on
+    text in the source files:
+    \begin{itemize}
+    \item both the input and the output of a macro is text,
+    \item the 
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Variable Scope}
+  \begin{itemize}
+  \item \textbf{Scope} refers to the textual region of the program, where
+    references to some entity may occur.
+  \item Common Lisp distinguishes the following:
+    \begin{itemize}
+    \item \textbf{lexical scope} - references to the entity may only occur
+      in the part of the program that is lexically (textually) contained within
+      the construct that establishes it,
+    \item \textbf{indefinite scope} - references may occur anywhere in the
+      program,
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Variable Extent}
+  \begin{itemize}
+  \item \textbf{Extent} refers to the interval of time during which the
+    references to some entity may occur. 
+  \item Common Lisp distinguishes the following:
+    \begin{itemize}
+    \item \textbf{dynamic extent} - references may only occur between the time
+      control flow enters the construct that establishes the extent and exits
+      it,
+    \item \textbf{indefinite extent} - entity continues to exist while there is
+      still a possibility of reference.
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Variables in Common Lisp 1/2}
+  \begin{itemize}
+  \item Associations between the symbolic names of the variables and their
+    values are called \textbf{bindings}.
+  \item Variables can be \textbf{bound}, meaning there is a binding for that
+    variable at a current point in the program, and \textbf{free}, meaning there
+    is no binding.
+  \item Variable bindings are stored in objects called \textbf{environments},
+    which can be nested:
+\begin{minted}{Lisp}
+                       ;; Environment 0:
+  (let ((a 5)          ;; a = 5
+        (b 10))        ;; b = 10
+    ...
+    ...                ;; Environment 1:
+    (let ((c (+ a b))  ;; c = 15
+          (d (* a b))) ;; d = 50
+      ...
+      (list a b c d))) ;; Lookup in Env. 1, then Env. 0
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Variables in Common Lisp 2/2}
+  \begin{itemize}
+  \item Variables can be set with the \mintinline{Lisp}{setf} form:
+\begin{minted}{Lisp}
+  CL-USER> (let ((a 0))
+             (setf a 1)
+             a)
+  1
+\end{minted}
+  \item In the body of a function definition, variables representing the
+    parameters are considered bound,
+\begin{minted}{Lisp}
+  (defun f (a b) 
+    (* a b))     ;; a and b are bound to the abstract "arguments"
+
+  (f 1 2)
+  ;; The same as (almost, because in general variable
+  ;; renaming is needed):
+  ;; (let ((a 1)
+  ;;       (b 2))
+  ;;   (* a b))
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+
+\begin{frame}[fragile]
+  \frametitle{Lexically-scoped Variables 1/2}
+  \begin{itemize}
+  \item Simplest Common Lisp construct to create lexical bindings is
+    a \mintinline{Lisp}{let}-form:
+\begin{minted}{Lisp}
+  CL-USER> (let ((a 5)
+                 (b 6))
+             (* a b))
+  30
+  CL-USER> (* a b)
+  ;; Error: Attempt to take the value of the unbound variable `a'.
+\end{minted}
+  \item Here, variables \mintinline{Lisp}{a} and \mintinline{Lisp}{b} can only
+    by accessed from within the body of the \mintinline{Lisp}{let}-form.
+  \item Scope of variables \mintinline{Lisp}{a} and \mintinline{Lisp}{b} is the
+    lexical (textual) region \mintinline{Lisp}{"(* a b)"}.
+  \item Extent of variables \mintinline{Lisp}{a} and \mintinline{Lisp}{b} is the
+    period while the form \mintinline{Lisp}{(* a b)} executes.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Lexically-scoped Variables 2/2}
+  \begin{itemize}
+  \item Lexical variables are invisible outside the construct that defines their
+    scope:
+\begin{minted}{Lisp}
+  CL-USER> (define f ()
+             (+ a b))
+
+  CL-USER> (let ((a 5)
+                 (b 6))
+             (f))
+  ;; Error: Attempt to take the value of the unbound variable `a'.
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Dynamically-scoped Variables}
+  \begin{itemize}
+  \item \textbf{``Dynamic scope''} is a hacky way of saying ``indefinite scope
+    and dynamic extent''.
+  \item Common Lisp allows to declare variables to be ``dynamically scoped'':
+\begin{minted}{Lisp}
+  (defvar *coeff* 10) ; "special" (dynamically scoped) variable 
+
+  (defun f (x) (* x *coeff*))
+
+  CL-USER> (f 5)
+  50
+  CL-USER> (let ((*coeff* 1000))
+             (f 5))
+  5000
+  CL-USER> *coefficient*
+  10
+\end{minted}
+  \item Note that \mintinline{Lisp}{let} can also create dynamic bindings.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Practical Example of Dynamically-scoped Variables}
+  \begin{itemize}
+  \item Dynamic variables allow to implicitly parameterize code without having
+    to pass around lots of arguments:
+\begin{minted}{Lisp}
+  (defun print-numbers (n1 n2 n3)
+    (print n1)
+    (print n2)
+    (print n3))
+
+  (print-numbers 10 11 12)
+  ;; 10
+  ;; 11
+  ;; 12
+
+  (let ((*print-base* 16))
+    (print-numbers 10 11 12))
+  ;; a
+  ;; b
+  ;; c
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Control Flow 1/4: sequence of forms}
+  \begin{itemize}
+  \item Multiple Common Lisp forms can be executed in a sequence:
+\begin{minted}{Lisp}
+  (progn
+     <form1>
+     <form2>
+     ...
+     <formN>)
+\end{minted}
+  \item The value of the \mintinline{Lisp}{progn} form is the value of the last
+    form:
+\begin{minted}{Lisp}
+  (progn
+    (print "This will return 5.")
+    5)
+\end{minted}
+  \item The order can be switched with \mintinline{Lisp}{prog1}:
+\begin{minted}{Lisp}
+  (prog1 5
+    (print "This will return 5."))
+\end{minted}
+  \item A lot of Lisp forms that have a body, have an implicit
+    \mintinline{Lisp}{progn} around the body.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Control Flow 2/4: conditionals}
+  \begin{itemize}
+  \item \mintinline{Lisp}{if}-expression has the following form:
+\begin{minted}{Lisp}
+  (if <condition>
+      <true-branch-form>
+      <false-branch-form>)
+\end{minted}
+    
+  \item There is a single-branch conditional:
+\begin{minted}{Lisp}
+  (when <condition>
+    <true-branch-body>
+    ...)
+  ;; (if <condition>
+  ;;     (progn <true-branch-body>
+  ;;            ...)
+  ;;     nil
+\end{minted}
+    and a shortcut
+\begin{minted}{Lisp}
+  (unless <condition>   ;; same as (when (not <condition>) ...)
+    <false-branch-body>
+    ...)
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Control Flow 3/4: multiple values}
+  \begin{itemize}
+  \item Common Lisp allows to return multiple values as a result of evaluating
+    a form:
+\begin{minted}{Lisp}
+  CL-USER> (values 1 2 3)
+  1
+  2
+  3
+  CL-USER> (multiple-value-bind (a b c) (values 1 2 3)
+             (list 1 2 3))
+  (1 2 3)
+  CL-USER (let ((a (values 1 2 3)))
+            a)
+  1
+\end{minted}
+  \item Used when the rest of the values are less significant than the main one.
+  \item Unlike Python's \mintinline{Python}{return a, b}, Common Lisp's
+    \mintinline{Lisp}{values} form does not pack/unpack values into a transient
+    data structure.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Control Flow 4/4: simple iteration}
+  \begin{itemize}
+  \item Common Lisp provides simple constructions to iterate over a list and
+    repeat a body several times:
+\begin{minted}{Lisp}
+  CL-USER> (dolist (element '(1 2 3))
+             (print element))
+  1
+  2
+  3
+  nil
+  CL-USER> (dotimes (i 3)
+             (print i))
+  0
+  1
+  2
+  nil
+\end{minted}
+  \item There are also more complex \mintinline{Lisp}{do} and
+    \mintinline{Lisp}{loop} forms.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Lexical Closures 1/2}
+  \begin{itemize}
+  \item \textbf{Closure} is a pair consisting of a first-class function and an
+    environment.
+  \item Closure's \textbf{environment} maps the free variables in the function
+    to the values they were bound to when the closure was created.
+  \item Closure, unlike a regular function, can access the bindings in the
+    environment where they were created.
+\begin{minted}{Lisp}
+  (defun make-counter ()
+    (let ((c 0))
+      (lambda () 
+        (prog1 c
+          (incf c))))) ;; same as (setf c (+ c 1))
+
+  (let ((counter (make-counter)))
+    (funcall counter)  ;; 0
+    (funcall counter)) ;; 1
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Lexical Closures 2/2}
+  \begin{itemize}
+  \item Practical example of using lexical closures - \textbf{memoization}
+\begin{minted}{Lisp}
+  (let ((cache (make-hash-table)))
+
+    (defun %fib (n)
+      (if (= n 0)
+          0
+          (if (= n 1)
+              1
+              (+ (%fib (- n 1)) (%fib (- n 2))))))
+
+    (defun fib (n)
+      (multiple-value-bind (value exists?) (gethash n cache)
+        (if exists?
+            value
+            (let ((value (%fib n)))
+              (setf (gethash n cache) value)
+              value)))))
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Lexical Closures 2/2}
+  \begin{itemize}
+  \item Practical example of using lexical closures - \textbf{memoization}
+\begin{minted}{Lisp}
+  (let ((cache (make-hash-table)))
+
+    (defun %fib (n)
+      (if (= n 0)
+          0
+          (if (= n 1)
+              1
+              (+ (fib (- n 1)) (fib (- n 2))))))
+
+    (defun fib (n)
+      (multiple-value-bind (value exists?) (gethash n cache)
+        (if exists?
+            value
+            (let ((value (%fib n)))
+              (setf (gethash n cache) value)
+              value)))))
+\end{minted}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Useful Resources}
+  \begin{itemize}
+  \item \textbf{Let Over Lambda} by Doug Hoyte - great book on macro programming
+    in Common Lisp
+  \item \textbf{The Art of the Metaobject Protocol} by Daniel G. Bobrow and
+    Gregor Kiczales - one of the best OOP books out there
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{The End}
+  \begin{center}
+    Thank you!
+  \end{center}
+\end{frame}
+
+\end{document}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% TeX-command-extra-options: "-shell-escape"
+%%% End:
